@@ -9,7 +9,7 @@ on:
     inputs:
       applesign_ref:
         description: node-applesign branch, tag or commit to bundle
-        default: master
+        default: "7.1.0"
       prerelease:
         description: Publish the DMG as the rolling "continuous" prerelease
         type: boolean
@@ -27,7 +27,7 @@ jobs:
     # Apple silicon runner; the app and the SEA are arm64 only
     runs-on: macos-26
     env:
-      APPLESIGN_REF: ${{ inputs.applesign_ref || 'master' }}
+      APPLESIGN_REF: ${{ inputs.applesign_ref || '7.1.0' }}
     steps:
       - uses: actions/checkout@v5
 

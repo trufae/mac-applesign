@@ -37,11 +37,11 @@ For device installs: `brew install ideviceinstaller`
 ## Build from source
 
 ```sh
-git clone https://github.com/nowsecure/node-applesign ../node-applesign
+git clone -b 7.1.0 https://github.com/nowsecure/node-applesign ../node-applesign
 make run          # build and launch (also: install, uninstall, dmg)
 ```
 
-CI clones node-applesign, builds the single executable, the app and the DMG,
+CI clones node-applesign 7.1.0, builds the single executable, the app and the DMG,
 and publishes a release for every `v*` tag. Add the `DEVELOPER_ID_*` and
 `APPLE_*` secrets to sign and notarize in CI. See
 [the workflow](.github/workflows/build.yml).
