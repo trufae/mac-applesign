@@ -104,7 +104,7 @@ jobs:
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
           xcrun stapler staple "$DMG"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: AppleSign-${{ steps.version.outputs.version }}-arm64
           path: build/AppleSign-*.dmg
@@ -117,7 +117,14 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --title "AppleSign $GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" build/AppleSign-*.dmg --clobber
+          # Only a Developer ID build may replace an asset, so an ad-hoc CI
+          # build never overwrites a DMG that was signed and uploaded locally.
+          if [ -n "${{ steps.cert.outputs.identity }}" ]; then
+            gh release upload "$GITHUB_REF_NAME" build/AppleSign-*.dmg --clobber
+          else
+            gh release upload "$GITHUB_REF_NAME" build/AppleSign-*.dmg ||
+              echo "::notice::Keeping the existing release DMG"
+          fi
 
       - name: Publish continuous prerelease
         if: inputs.prerelease
