@@ -269,7 +269,7 @@ final class Workbench {
         if case .installing = installState { return }
         installState = .installing(device.udid)
         Task {
-            let args = ["-u", device.udid, "-i", ipa.path]
+            let args = ["-u", device.udid, "install", ipa.path]
             append(.command, "$ ideviceinstaller " + args.map(Self.shellQuote).joined(separator: " "))
             var status: Int32 = -1
             do {
