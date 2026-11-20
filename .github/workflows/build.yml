@@ -1,0 +1,130 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      applesign_ref:
+        description: node-applesign branch, tag or commit to bundle
+        default: master
+      prerelease:
+        description: Publish the DMG as the rolling "continuous" prerelease
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-arm64:
+    # Apple silicon runner; the app and the SEA are arm64 only
+    runs-on: macos-26
+    env:
+      APPLESIGN_REF: ${{ inputs.applesign_ref || 'master' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Clone node-applesign
+        uses: actions/checkout@v5
+        with:
+          repository: nowsecure/node-applesign
+          ref: ${{ env.APPLESIGN_REF }}
+          path: node-applesign
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "26"
+          architecture: arm64
+
+      - name: Select newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+          xcodebuild -version
+          swift --version
+
+      - name: Version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            V=${GITHUB_REF_NAME#v}
+          else
+            V=$(sed -n 's/.*MARKETING_VERSION = \(.*\);/\1/p' AppleSign.xcodeproj/project.pbxproj | head -n 1)
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Build applesign single executable (SEA)
+        run: |
+          ./scripts/build-applesign.sh node-applesign
+          file vendor/applesign
+
+      - name: Build AppleSign.app
+        run: make all VERSION=${{ steps.version.outputs.version }}
+
+      - name: Import Developer ID certificate
+        id: cert
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        if: env.P12 != ''
+        run: |
+          KC=$RUNNER_TEMP/signing.keychain-db
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k ci "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          ID=$(security find-identity -v -p codesigning "$KC" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          echo "identity=$ID" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KC" >> "$GITHUB_OUTPUT"
+
+      - name: Sign and build DMG
+        env:
+          KEYCHAIN: ${{ steps.cert.outputs.keychain }}
+        run: make dmg VERSION=${{ steps.version.outputs.version }} IDENTITY="${{ steps.cert.outputs.identity || '-' }}"
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        if: steps.cert.outputs.identity != '' && env.APPLE_ID != ''
+        run: |
+          DMG=build/AppleSign-${{ steps.version.outputs.version }}-arm64.dmg
+          codesign --force --timestamp --sign "${{ steps.cert.outputs.identity }}" "$DMG"
+          xcrun notarytool submit "$DMG" --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          xcrun stapler staple "$DMG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AppleSign-${{ steps.version.outputs.version }}-arm64
+          path: build/AppleSign-*.dmg
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --title "AppleSign $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" build/AppleSign-*.dmg --clobber
+
+      - name: Publish continuous prerelease
+        if: inputs.prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete continuous --cleanup-tag --yes >/dev/null 2>&1 || true
+          gh release create continuous build/AppleSign-*.dmg --prerelease \
+            --target "$GITHUB_SHA" --title "AppleSign continuous build" \
+            --notes "Built from ${GITHUB_SHA} with node-applesign@${APPLESIGN_REF}"
