@@ -173,6 +173,24 @@ nonisolated enum Tools {
         }
         return find("applesign")
     }
+
+    /// `applesign --version` of the binary in use, or nil if it cannot run.
+    @concurrent
+    static func applesignVersion() async -> String? {
+        guard let tool = applesign, let r = try? await ProcessRunner.run(tool, arguments: ["--version"]), r.status == 0 else {
+            return nil
+        }
+        let v = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
+
+    /// AppleSign's own version, as "1.0.1 (2)".
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let short = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
 }
 
 nonisolated enum SettingsKey {

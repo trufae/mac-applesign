@@ -15,6 +15,19 @@ struct AppleSignApp: App {
         .defaultSize(width: 1040, height: 720)
         .windowToolbarStyle(.unified)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About AppleSign") {
+                    Task {
+                        let v = await Tools.applesignVersion() ?? "not found"
+                        NSApp.orderFrontStandardAboutPanel(options: [
+                            .credits: NSAttributedString(string: "node-applesign \(v)", attributes: [
+                                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                                .foregroundColor: NSColor.secondaryLabelColor,
+                            ]),
+                        ])
+                    }
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open App…") { Panels.chooseApp().map(delegate.bench.setInput) }
                     .keyboardShortcut("o")

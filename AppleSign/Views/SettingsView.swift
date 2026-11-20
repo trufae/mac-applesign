@@ -56,15 +56,22 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
             }
+
+            Section("About") {
+                LabeledContent("mac-applesign") {
+                    Link(Tools.appVersion, destination: URL(string: "https://github.com/trufae/mac-applesign")!)
+                }
+                LabeledContent("node-applesign") {
+                    Link(version.isEmpty ? "Unknown" : version, destination: URL(string: "https://github.com/nowsecure/node-applesign")!)
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
         .task(id: applesignPath) {
             version = ""
-            if let tool = Tools.applesign, let r = try? await ProcessRunner.run(tool, arguments: ["--version"]), r.status == 0 {
-                version = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+            version = await Tools.applesignVersion() ?? ""
         }
         .onAppear {
             if bench.identityIsP12 { p12Password = Keychain.password(for: bench.identity) ?? "" }
